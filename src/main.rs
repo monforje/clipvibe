@@ -1,5 +1,6 @@
 mod daemon;
 mod ipc;
+mod shot;
 mod store;
 mod ui;
 
@@ -9,17 +10,22 @@ const HELP: &str = "\
 clipvibe — история буфера обмена
 
   clipvibe            открыть/закрыть окно истории (повесьте на хоткей)
+  clipvibe shot       скриншот области с редактором (--video — запись видео)
   clipvibe daemon     запустить фоновый сборщик (стартует сам при первом открытии)
   clipvibe list       вывести историю в терминал
   clipvibe clear      удалить всё, кроме закреплённого
-  clipvibe install    автозапуск + ярлык + хоткей GNOME (Super+Shift+V)
+  clipvibe install    автозапуск, ярлык и хоткеи GNOME:
+                      Super+Shift+V история · Print скриншот · Super+Shift+R видео
 ";
 
 fn main() -> Result<()> {
-    let arg = std::env::args().nth(1);
-    match arg.as_deref() {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    let rest = args.get(1..).unwrap_or_default();
+    match args.first().map(String::as_str) {
         None | Some("show" | "toggle") => ui::run(),
         Some("daemon") => daemon::run(),
+        Some("shot") => shot::run(rest),
+        Some("record-area") => shot::record::run(rest),
         Some("list") => {
             ipc::ensure_daemon()?;
             use std::io::Write;
@@ -90,9 +96,8 @@ fn install() -> Result<()> {
     println!("✓ бинарник: {bin}");
     println!("✓ автозапуск демона: ~/.config/autostart/clipvibe-daemon.desktop");
 
-    // GNOME custom keybinding.
+    // GNOME custom keybindings.
     let base = "org.gnome.settings-daemon.plugins.media-keys";
-    let path = "/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/clipvibe/";
     let gs = |args: &[&str]| -> Option<String> {
         let out = std::process::Command::new("gsettings")
             .args(args)
@@ -102,8 +107,42 @@ fn install() -> Result<()> {
             .success()
             .then(|| String::from_utf8_lossy(&out.stdout).trim().to_string())
     };
-    if let Some(list) = gs(&["get", base, "custom-keybindings"]) {
-        if !list.contains(path) {
+    let bindings = [
+        (
+            "clipvibe",
+            "Clipvibe — история",
+            bin.to_string(),
+            "<Super><Shift>v",
+            "Super+Shift+V история",
+        ),
+        (
+            "clipvibe-shot",
+            "Clipvibe — скриншот",
+            format!("{bin} shot"),
+            "Print",
+            "Print скриншот",
+        ),
+        (
+            "clipvibe-record",
+            "Clipvibe — запись экрана",
+            format!("{bin} shot --video"),
+            "<Super><Shift>r",
+            "Super+Shift+R запись (повторно — стоп)",
+        ),
+    ];
+    // Print belongs to GNOME's screenshot UI by default: move it to Super+Print.
+    let shell = "org.gnome.shell.keybindings";
+    if gs(&["get", shell, "show-screenshot-ui"]).is_some_and(|v| v.contains("'Print'")) {
+        gs(&["set", shell, "show-screenshot-ui", "['<Super>Print']"]);
+        println!("✓ скриншотер GNOME перенесён на Super+Print");
+    }
+    for (id, name, command, binding, label) in bindings {
+        let path =
+            format!("/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/{id}/");
+        let Some(list) = gs(&["get", base, "custom-keybindings"]) else {
+            break;
+        };
+        if !list.contains(&format!("'{path}'")) {
             let new_list = if list.contains("[]") {
                 format!("['{path}']")
             } else {
@@ -112,10 +151,10 @@ fn install() -> Result<()> {
             gs(&["set", base, "custom-keybindings", &new_list]);
         }
         let schema = format!("{base}.custom-keybinding:{path}");
-        gs(&["set", &schema, "name", "Clipvibe"]);
-        gs(&["set", &schema, "command", &bin.to_string()]);
-        gs(&["set", &schema, "binding", "<Super><Shift>v"]);
-        println!("✓ хоткей GNOME: Super+Shift+V");
+        gs(&["set", &schema, "name", name]);
+        gs(&["set", &schema, "command", &command]);
+        gs(&["set", &schema, "binding", binding]);
+        println!("✓ хоткей GNOME: {label}");
     }
     // Restart the daemon from the installed binary.
     if ipc::daemon_alive() {

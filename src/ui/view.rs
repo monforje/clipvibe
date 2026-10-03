@@ -431,6 +431,20 @@ impl ClipView {
         }
     }
 
+    /// Closes the history and opens the screenshot overlay (after the window is gone).
+    fn capture(&mut self, video: bool, cx: &mut Context<Self>) {
+        let mut cmd = std::process::Command::new(std::env::current_exe().unwrap_or_default());
+        cmd.args(["shot", "--delay", "250"]);
+        if video {
+            cmd.arg("--video");
+        }
+        use std::os::unix::process::CommandExt;
+        match cmd.process_group(0).spawn() {
+            Ok(_) => cx.quit(),
+            Err(err) => self.flash(format!("Не удалось запустить: {err}"), Icon::Camera, true),
+        }
+    }
+
     fn reload_keeping_position(&mut self, pos: usize) {
         self.reload();
         self.select(pos);
@@ -693,6 +707,8 @@ impl ClipView {
             "home" => self.select(0),
             "end" => self.select(usize::MAX),
             "tab" => self.cycle_filter(if shift { -1 } else { 1 }),
+            "s" if ctrl && shift => self.capture(false, cx),
+            "r" if ctrl && shift => self.capture(true, cx),
             "s" if ctrl => self.toggle_pin(),
             "delete" | "backspace" if ctrl && shift => self.clear_unpinned(),
             "delete" => self.delete_selected(),
@@ -863,6 +879,8 @@ impl ClipView {
                     .text_color(t.text_faint)
                     .child(counter),
             )
+            .child(self.capture_button("cap-shot", Icon::Camera, "Скриншот", false, cx))
+            .child(self.capture_button("cap-video", Icon::Video, "Видео", true, cx))
             .child(
                 div()
                     .id("help-btn")
@@ -874,6 +892,33 @@ impl ClipView {
                     }))
                     .child(kbd(t, "F1")),
             )
+    }
+
+    fn capture_button(
+        &self,
+        id: &'static str,
+        i: Icon,
+        label: &'static str,
+        video: bool,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        let t = self.theme;
+        div()
+            .id(id)
+            .flex_none()
+            .h(px(28.))
+            .px(px(9.))
+            .flex()
+            .items_center()
+            .gap(px(6.))
+            .rounded(px(8.))
+            .cursor_pointer()
+            .text_size(px(12.))
+            .text_color(t.text_muted)
+            .hover(|s| s.bg(t.hover).text_color(t.text))
+            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.capture(video, cx)))
+            .child(icon(i, 14., t.text_muted))
+            .child(label)
     }
 
     fn render_filters(&self, cx: &mut Context<Self>) -> impl IntoElement {
@@ -1439,6 +1484,7 @@ impl ClipView {
                     ("Backspace  ·  Ctrl Backspace", "Стереть символ / слово"),
                     ("Ctrl U", "Очистить поиск"),
                     ("Esc", "Сбросить поиск, затем закрыть"),
+                    ("Ctrl Shift S / R", "Скриншот / запись экрана"),
                     ("F1  ·  Ctrl /", "Эта справка"),
                 ],
             ),

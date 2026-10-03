@@ -26,6 +26,19 @@ pub fn run() -> Result<()> {
         eprintln!("clipvibe daemon is already running");
         return Ok(());
     }
+    // One writer per history file, even if sockets live in different dirs.
+    let lock = std::fs::File::create(store::data_dir().join("daemon.lock"))?;
+    // SAFETY: flock on a valid, open file descriptor.
+    if unsafe {
+        libc::flock(
+            std::os::fd::AsRawFd::as_raw_fd(&lock),
+            libc::LOCK_EX | libc::LOCK_NB,
+        )
+    } != 0
+    {
+        eprintln!("another clipvibe daemon owns {:?}", store::data_dir());
+        return Ok(());
+    }
     let sock = ipc::daemon_socket();
     let _ = std::fs::remove_file(&sock);
     let listener = UnixListener::bind(&sock).with_context(|| format!("bind {sock:?}"))?;
@@ -47,6 +60,7 @@ pub fn run() -> Result<()> {
     }
 
     let mut clipboard = Clipboard::new().context("open X11 clipboard")?;
+    let _lock = lock;
     eprintln!("clipvibe daemon listening on {sock:?}");
     for stream in listener.incoming() {
         match stream {
@@ -112,6 +126,27 @@ fn handle(req: Request, history: &Shared, clipboard: &mut Clipboard) -> Result<R
         Request::CopyText { text } => {
             drop(h);
             clipboard.set_text(text)?;
+            return Ok(Response::Ok);
+        }
+        Request::CopyImage { path } => {
+            drop(h);
+            let img = image::open(&path)?.into_rgba8();
+            clipboard.set_image(arboard::ImageData {
+                width: img.width() as usize,
+                height: img.height() as usize,
+                bytes: img.into_raw().into(),
+            })?;
+            return Ok(Response::Ok);
+        }
+        Request::CopyFiles { paths } => {
+            // Files can't be read back as text, so record them explicitly.
+            let text = paths.join("\n");
+            let hash = store::hash_bytes(0, text.as_bytes());
+            if h.record(hash, || Some(Content::Text { text })) {
+                h.save();
+            }
+            drop(h);
+            clipboard.set().file_list(&paths)?;
             return Ok(Response::Ok);
         }
         Request::TogglePin { id } => {
