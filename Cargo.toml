@@ -1,0 +1,23 @@
+[package]
+name = "clipvibe"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1.0.104"
+arboard = "3"
+dirs = "7.0.0"
+gpui = "0.2.2"
+image = { version = "0.25", default-features = false, features = ["png"] }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
+x11rb = { version = "0.13", features = ["xfixes"] }
+
+[profile.release]
+lto = "thin"
+codegen-units = 4
+strip = true
+
+# xattr 0.2.3 (via gpui -> zed-async-tar) references libc::ENOATTR, which newer libc dropped.
+[patch.crates-io]
+xattr = { path = "vendor/xattr" }
