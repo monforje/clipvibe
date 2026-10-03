@@ -114,6 +114,9 @@ fn install() -> Result<()> {
         let schema = format!("{base}.custom-keybinding:{path}");
         gs(&["set", &schema, "name", "Clipvibe"]);
         gs(&["set", &schema, "command", &bin.to_string()]);
+        // gsd-media-keys only (re)grabs a key when the value changes, and gives
+        // up for good if the grab failed, so always clear it first.
+        gs(&["set", &schema, "binding", ""]);
         gs(&["set", &schema, "binding", "<Super><Shift>v"]);
         println!("✓ хоткей GNOME: Super+Shift+V");
     }
