@@ -128,27 +128,6 @@ fn handle(req: Request, history: &Shared, clipboard: &mut Clipboard) -> Result<R
             clipboard.set_text(text)?;
             return Ok(Response::Ok);
         }
-        Request::CopyImage { path } => {
-            drop(h);
-            let img = image::open(&path)?.into_rgba8();
-            clipboard.set_image(arboard::ImageData {
-                width: img.width() as usize,
-                height: img.height() as usize,
-                bytes: img.into_raw().into(),
-            })?;
-            return Ok(Response::Ok);
-        }
-        Request::CopyFiles { paths } => {
-            // Files can't be read back as text, so record them explicitly.
-            let text = paths.join("\n");
-            let hash = store::hash_bytes(0, text.as_bytes());
-            if h.record(hash, || Some(Content::Text { text })) {
-                h.save();
-            }
-            drop(h);
-            clipboard.set().file_list(&paths)?;
-            return Ok(Response::Ok);
-        }
         Request::TogglePin { id } => {
             if let Some(e) = h.entries.iter_mut().find(|e| e.id == id) {
                 e.pinned = !e.pinned;

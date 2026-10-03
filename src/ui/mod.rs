@@ -1,5 +1,5 @@
 mod fuzzy;
-pub(crate) mod icons;
+mod icons;
 mod theme;
 mod view;
 

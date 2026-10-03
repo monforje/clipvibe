@@ -13,8 +13,6 @@ pub enum Request {
     List,
     Copy { id: u64 },
     CopyText { text: String },
-    CopyImage { path: String },
-    CopyFiles { paths: Vec<String> },
     TogglePin { id: u64 },
     Delete { id: u64 },
     ClearUnpinned,
